@@ -22,13 +22,26 @@ Go to https://modal.com/secrets and create:
 ANTHROPIC_API_KEY=your_claude_api_key_here
 ```
 
-**kaggle-credentials** (optional):
+**kaggle-credentials** (recommended for dataset access):
 ```
 KAGGLE_USERNAME=your_username
 KAGGLE_KEY=your_api_key
 ```
+Get your Kaggle API credentials from: https://www.kaggle.com/settings/account
 
-### 4. Deploy the App
+### 4. One-Time Claude Code Authentication
+Since you cannot create additional Claude API keys, you'll need to authenticate Claude Code once:
+
+```bash
+# Run this locally first to authenticate Claude Code
+claude
+# In the Claude interface, run: /login
+# Follow the authentication prompts
+```
+
+**Important**: The authentication state will persist in the Modal container after first deployment.
+
+### 5. Deploy the App
 ```bash
 git clone https://github.com/avocardio/predictors.git
 cd predictors
