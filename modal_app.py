@@ -168,14 +168,38 @@ START THE PIPELINE NOW.
     print("🧠 Executing Claude Code...")
     
     try:
-        # Use echo to pipe instructions to Claude Code
+        # Set environment variables from Modal secrets
+        env = os.environ.copy()
+        env['ANTHROPIC_API_KEY'] = os.getenv('ANTHROPIC_API_KEY')
+        if os.getenv('KAGGLE_USERNAME'):
+            env['KAGGLE_USERNAME'] = os.getenv('KAGGLE_USERNAME')
+        if os.getenv('KAGGLE_KEY'):
+            env['KAGGLE_KEY'] = os.getenv('KAGGLE_KEY')
+        
+        # First-time Claude Code authentication (if needed)
+        print("🔐 Checking Claude Code authentication...")
+        auth_check = subprocess.run(
+            'echo "/login" | claude --print',
+            shell=True,
+            cwd=str(workspace),
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env=env
+        )
+        
+        if auth_check.returncode != 0:
+            print("⚠️ Claude Code authentication may be required - proceeding anyway...")
+        
+        # Execute main pipeline
         result = subprocess.run(
             'echo "$(cat pipeline_instructions.txt)" | claude --dangerously-skip-permissions --print --max-turns 25',
             shell=True,
             cwd=str(workspace),
             capture_output=True,
             text=True,
-            timeout=12000  # 3+ hours for full pipeline
+            timeout=12000,  # 3+ hours for full pipeline
+            env=env
         )
         
         print(f"🔄 Claude Code execution completed (return code: {result.returncode})")
