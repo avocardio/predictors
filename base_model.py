@@ -2,9 +2,8 @@ import lightning.pytorch as pl
 import torch
 import torch.nn as nn
 from torch.optim import AdamW
-from transformers import get_linear_schedule_with_warmup
 import math
-
+from output_shape import output_shape
 
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len=5000):
@@ -26,17 +25,18 @@ class BaseTransformer(pl.LightningModule):
         input_dim,
         output_dim,
         d_model=512,
-        nhead=8,
+        nhead=4,
         num_layers=6,
-        dim_feedforward=2048,
+        dim_feedforward=1024,
         dropout=0.1,
         learning_rate=1e-4,
-        warmup_steps=1000,
         max_steps=100000,
-        task_type='regression',  # 'regression', 'classification', 'sequence'
+        task_type='classification',  # 'regression', 'classification', 'sequence'
+        debug=False,
     ):
         super().__init__()
         self.save_hyperparameters()
+        self.debug = debug
         
         self.input_projection = nn.Linear(input_dim, d_model)
         self.positional_encoding = PositionalEncoding(d_model)
@@ -62,9 +62,9 @@ class BaseTransformer(pl.LightningModule):
         
         self.task_type = task_type
         self.learning_rate = learning_rate
-        self.warmup_steps = warmup_steps
         self.max_steps = max_steps
 
+    @output_shape
     def forward(self, x, mask=None):
         x = self.input_projection(x)
         x = self.positional_encoding(x)
@@ -113,23 +113,15 @@ class BaseTransformer(pl.LightningModule):
         return loss
 
     def configure_optimizers(self):
-        optimizer = AdamW(self.parameters(), lr=self.learning_rate)
-        scheduler = get_linear_schedule_with_warmup(
-            optimizer,
-            num_warmup_steps=self.warmup_steps,
-            num_training_steps=self.max_steps
-        )
-        return {
-            'optimizer': optimizer,
-            'lr_scheduler': {
-                'scheduler': scheduler,
-                'interval': 'step',
-                'frequency': 1
-            }
-        }
+        return AdamW(self.parameters(), lr=self.learning_rate)
 
     def on_train_epoch_end(self):
         print(f"Epoch {self.current_epoch} completed")
 
     def on_validation_epoch_end(self):
         print(f"Validation epoch {self.current_epoch} completed")
+
+
+if __name__ == "__main__":
+    x = torch.randn(1, 100)
+    y = BaseTransformer(debug=True, input_dim=100, output_dim=1)(x)

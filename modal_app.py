@@ -57,7 +57,7 @@ def weekly_prediction_discovery():
     Main function that runs weekly to discover and train a new prediction task
     """
     
-    print("🚀 Starting Weekly Prediction Discovery")
+    print("Starting Weekly Discovery")
     print(f"Time: {datetime.now()}")
     print(f"GPU: {modal.gpu.count()} available")
     print("="*60)
@@ -68,7 +68,6 @@ def weekly_prediction_discovery():
     os.chdir(workspace)
     
     # Clone the repository
-    print("📦 Cloning repository...")
     subprocess.run([
         "git", "clone", 
         "https://github.com/avocardio/predictors.git", 
