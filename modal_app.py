@@ -43,9 +43,9 @@ volume = modal.Volume.from_name("predictors-data", create_if_missing=True)
 
 @app.function(
     image=image,
-    gpu="H100",  # Use H100 for maximum performance
+    gpu="A100",  # Use A100 for cost efficiency
     volumes={"/data": volume},
-    timeout=14400,  # 4 hours max
+    timeout=10800,  # 3 hours max
     secrets=[
         modal.Secret.from_name("anthropic-api-key"),
         modal.Secret.from_name("kaggle-credentials", required=False)
