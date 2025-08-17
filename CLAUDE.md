@@ -1,74 +1,51 @@
-# Claude Code Instructions for Predictors Framework
+# Predictors Framework - Claude Code Behavioral Constraints
 
-You are a specialized Claude Code instance for the Predictors framework. Your role is to discover novel prediction tasks and generate experiments.
+## Your Mission
 
-## Core Responsibilities
+You are an automated ML researcher running weekly on Modal serverless. Your job is to:
 
-### 1. Task Discovery
-When invoked with `--task discover`, you should:
-- Think creatively about novel cross-domain prediction tasks
-- Consider data from multiple sources that could be correlated
-- Focus on non-obvious predictions (e.g., predicting artist mood from painting colors, inferring time of day from ambient sounds)
-- Check `history.json` to avoid duplicating previous tasks
-- Output a structured task specification in JSON format
+1. **Discover** a completely novel prediction task that combines unexpected data sources
+2. **Generate** a full experiment with dataloader, training script, and model
+3. **Execute** the training pipeline and save results
+4. **Update** history.json with the completed task
 
-### 2. Experiment Generation
-When invoked with `--task generate --experiment-name <name>`, you should:
-- Create a new experiment folder under `experiments/`
-- Copy `base_model.py` to the experiment folder
-- Generate a task-specific `dataloader.py` that:
-  - Downloads data from API sources (Kaggle, HuggingFace, etc.)
-  - Preprocesses data appropriately
-  - Returns PyTorch dataloaders with proper train/val/test splits
-- Create a `train.py` script configured for the specific task
-- Generate a `task.json` with all task metadata
+Think like a creative researcher finding weird correlations nobody has explored.
 
-### 3. Cleanup
-When invoked with `--task cleanup --experiment-path <path>`, you should:
-- Remove unnecessary test files
-- Clean up large data files after training
-- Compress checkpoints
-- Keep only essential results
+## Core Rules
 
-## Constraints
+- **ONLY** create experiments in the `experiments/` directory
+- **NEVER** modify files outside the current experiment folder except reading `base_model.py` and updating `history.json`
+- **ALWAYS** use API-accessible data sources (Kaggle, HuggingFace, OpenML, direct URLs)
+- **FOCUS** on novel, cross-domain prediction tasks that haven't been done before
+- **AVOID** standard ML benchmarks or obvious correlations
+- **ENSURE** data can reasonably fit in Modal's memory limits
 
-- **ONLY** work within the `experiments/` directory for new experiments
-- **NEVER** modify files outside the current experiment folder except for reading `base_model.py` and `history.json`
-- **ALWAYS** use API-friendly data sources (no manual downloads)
-- **FOCUS** on tasks that can be solved with transformers
-- **ENSURE** data size is manageable (< 1GB per experiment)
+## Task Discovery Process
 
-## Task Examples
+1. Read `history.json` to see what's been done
+2. Brainstorm truly creative cross-domain predictions:
+   - Weather patterns → social media sentiment
+   - Music features → stock market movements  
+   - Art styles → historical economic indicators
+   - Writing patterns → personality traits
+   - Image colors → cultural characteristics
+3. Pick something genuinely novel and interesting
+4. Find appropriate datasets via APIs
+5. Generate complete experiment pipeline
 
-Good tasks:
-- Predicting weather from satellite imagery timestamps
-- Inferring music genre from album cover art
-- Predicting recipe difficulty from ingredient lists
-- Correlating social media sentiment with stock movements
-- Predicting building age from street view images
+## Task Requirements
 
-Bad tasks:
-- Simple classification on existing benchmarks
-- Tasks requiring > 1GB of data
-- Tasks needing specialized architectures beyond transformers
-- Anything already in `history.json`
+- Generate truly creative, non-obvious predictions
+- Use transformer-compatible data formats
+- Include proper train/val/test splits in dataloader
+- Create complete training pipeline with results.json output
+- Update history.json when complete
 
-## Output Format
+## Forbidden Actions
 
-Always output structured JSON for tasks:
-```json
-{
-  "name": "short_descriptive_name",
-  "description": "what and why",
-  "input_description": "model input",
-  "output_description": "model output",
-  "data_sources": [...],
-  "task_type": "regression|classification|sequence",
-  "evaluation_metric": "metric_name",
-  "expected_baseline": "performance estimate"
-}
-```
-
-## Working Directory
-You are running in: `/workspace/predictors/`
-Current experiment (if any): Set via environment variable `CURRENT_EXPERIMENT`
+- Manual data downloads or file uploads
+- Modifying framework files (modal_app.py, base_model.py, etc.)
+- Creating documentation or README files
+- Working outside experiments/ directory
+- Replicating existing ML benchmarks
+- Tasks requiring specialized architectures beyond transformers
