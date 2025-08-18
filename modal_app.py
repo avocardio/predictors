@@ -24,7 +24,7 @@ image = (
         "torch>=2.0.0",
         "torchvision", 
         "torchaudio",
-        "pytorch-lightning>=2.0.0",
+        "lightning>=2.0.0",
         "transformers>=4.30.0", 
         "datasets>=2.14.0",
         "kaggle>=1.5.0",
@@ -33,8 +33,20 @@ image = (
         "pandas>=2.0.0",
         "numpy>=1.24.0",
         "tqdm>=4.65.0",
-        "python-dotenv>=1.0.0"
+        "python-dotenv>=1.0.0",
+        "anthropic>=0.40.0",
+        "output-shape",
+        "wandb>=0.16.0",
+        "scikit-learn>=1.3.0",
+        "matplotlib>=3.7.0",
+        "seaborn>=0.12.0"
     ])
+    .add_local_file("task_discovery.py", remote_path="/workspace/task_discovery.py")
+    .add_local_file("experiment_generator.py", remote_path="/workspace/experiment_generator.py")
+    .add_local_file("reasoning_agent.py", remote_path="/workspace/reasoning_agent.py")
+    .add_local_file("base_model.py", remote_path="/workspace/base_model.py")
+    .add_local_file("data_acquisition.py", remote_path="/workspace/data_acquisition.py")
+    .add_local_file("CLAUDE.md", remote_path="/workspace/CLAUDE.md")
 )
 
 # Create persistent volume for history and results
@@ -47,8 +59,9 @@ volume = modal.Volume.from_name("predictors-data", create_if_missing=True)
     volumes={"/data": volume},
     timeout=10800,  # 3 hours max
     secrets=[
-        modal.Secret.from_name("anthropic-api-key"),
-        modal.Secret.from_name("kaggle-credentials", required=False)
+        modal.Secret.from_name("anthropic-secret"),
+        modal.Secret.from_name("kaggle"),
+        modal.Secret.from_name("wandb")
     ],
     schedule=modal.Cron("0 0 * * 0")  # Every Sunday at midnight UTC
 )
@@ -57,9 +70,9 @@ def weekly_prediction_discovery():
     Main function that runs weekly to discover and train a new prediction task
     """
     
-    print("Starting Weekly Discovery")
+    print("🚀 Starting Weekly Prediction Discovery")
     print(f"Time: {datetime.now()}")
-    print(f"GPU: {modal.gpu.count()} available")
+    print(f"GPU: A100 allocated")
     print("="*60)
     
     # Setup workspace
@@ -87,7 +100,7 @@ def weekly_prediction_discovery():
     
     # Run the automated pipeline
     try:
-        results = run_claude_pipeline(workspace)
+        results = run_api_pipeline(workspace)
         
         # Save results to persistent storage
         save_results_to_volume(workspace, results)
@@ -111,125 +124,254 @@ def weekly_prediction_discovery():
         raise
 
 
-def run_claude_pipeline(workspace: Path) -> dict:
-    """Run the Claude Code pipeline for task discovery and training"""
+def run_api_pipeline(workspace: Path) -> dict:
+    """Run the reasoning-based pipeline for task discovery and training"""
     
-    print("\n🤖 Starting Claude Code Pipeline")
-    
-    # Create pipeline instructions
-    pipeline_instructions = """
-You are running the Predictors framework for automated ML task discovery.
-
-EXECUTE THIS COMPLETE PIPELINE:
-
-1. **DISCOVER NOVEL TASK**
-   - Read history.json to see previous tasks
-   - Think creatively about a NEW cross-domain prediction task
-   - Focus on interesting correlations (weather ↔ social media, music ↔ markets, etc.)
-   - Create experiments/next_task.json with task specification
-
-2. **GENERATE EXPERIMENT**
-   - Create timestamped experiment folder in experiments/
-   - Copy base_model.py to experiment folder as model.py
-   - Generate custom dataloader.py for the specific task
-   - Generate configured train.py script
-   - Download data using APIs (HuggingFace, Kaggle, etc.)
-
-3. **RUN TRAINING**
-   - Execute python train.py in the experiment folder
-   - Monitor training progress
-   - Ensure results.json is created
-
-4. **UPDATE HISTORY**
-   - Add completed task to history.json
-   - Include results and timestamp
-
-5. **SIGNAL COMPLETION**
-   - Create file called "PIPELINE_COMPLETE.txt" when done
-   - Include summary of what was accomplished
-
-Requirements:
-- Use API-accessible data only
-- Keep data size < 1GB
-- Focus on transformer-solvable tasks
-- Be genuinely creative and novel
-
-START THE PIPELINE NOW.
-    """
-    
-    # Write instructions to file
-    instructions_file = workspace / "pipeline_instructions.txt"
-    instructions_file.write_text(pipeline_instructions)
-    
-    print("📝 Pipeline instructions created")
-    
-    # Execute Claude Code with the instructions
-    print("🧠 Executing Claude Code...")
+    print("\n🤖 Starting Reasoning Pipeline")
     
     try:
-        # Set environment variables from Modal secrets
-        env = os.environ.copy()
-        env['ANTHROPIC_API_KEY'] = os.getenv('ANTHROPIC_API_KEY')
-        if os.getenv('KAGGLE_USERNAME'):
-            env['KAGGLE_USERNAME'] = os.getenv('KAGGLE_USERNAME')
-        if os.getenv('KAGGLE_KEY'):
-            env['KAGGLE_KEY'] = os.getenv('KAGGLE_KEY')
+        # Import our modules from workspace
+        import sys
+        sys.path.insert(0, "/workspace")
+        from reasoning_agent import ReasoningAgent
+        from task_discovery import TaskDiscovery
+        from experiment_generator import ExperimentGenerator
         
-        # First-time Claude Code authentication (if needed)
-        print("🔐 Checking Claude Code authentication...")
-        auth_check = subprocess.run(
-            'echo "/login" | claude --print',
-            shell=True,
-            cwd=str(workspace),
-            capture_output=True,
-            text=True,
-            timeout=60,
-            env=env
-        )
+        # Initialize with API key
+        api_key = os.getenv('ANTHROPIC_API_KEY')
+        if not api_key:
+            raise ValueError("ANTHROPIC_API_KEY not found")
         
-        if auth_check.returncode != 0:
-            print("⚠️ Claude Code authentication may be required - proceeding anyway...")
+        # Load history
+        history_file = workspace / "history.json"
+        if history_file.exists():
+            with open(history_file, 'r') as f:
+                history = json.load(f).get("tasks", [])
+        else:
+            history = []
         
-        # Execute main pipeline
+        # Use reasoning agent for multi-step reasoning
+        agent = ReasoningAgent(api_key)
+        task = agent.run_full_pipeline(history)
+        
+        # Save reasoning log
+        reasoning_log = workspace / f"reasoning_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        agent.save_reasoning_log(reasoning_log)
+        
+        # Generate experiment with the reasoned task and history
+        generator = ExperimentGenerator()
+        experiment_path = generator.generate_experiment(task, api_key, history)
+        print(f"   Experiment created: {experiment_path}")
+        
+        # Run training with error recovery
+        print("🚀 Starting training...")
+        training_result = run_training_with_recovery(experiment_path, task, history, api_key)
+        
+        # Update history
+        print("📝 Updating history...")
+        discovery = TaskDiscovery(api_key)
+        task["experiment_path"] = experiment_path
+        task["training_result"] = training_result
+        task["completed_at"] = datetime.now().isoformat()
+        discovery.save_task(task)
+        
+        # Check training status for accurate final message
+        if training_result.get("status") == "completed":
+            print("✅ Pipeline completed successfully with training!")
+            status = "fully_completed"
+        elif training_result.get("status") == "failed":
+            print("⚠️ Pipeline completed but training failed")
+            status = "completed_training_failed" 
+        else:
+            print("⚠️ Pipeline completed but training status unclear")
+            status = "completed_unclear"
+        
+        return {"status": status, "task": task, "experiment_path": experiment_path, "training_result": training_result, "reasoning_traces": agent.reasoning_traces}
+        
+    except Exception as e:
+        print(f"💥 Pipeline failed: {e}")
+        return {"status": "error", "error": str(e)}
+
+
+def run_training_with_recovery(experiment_path: str, task: dict, history: list, api_key: str, max_attempts: int = 3) -> dict:
+    """Run training with automatic error recovery using LLM fixes"""
+    
+    for attempt in range(max_attempts):
+        print(f"🔧 Training attempt {attempt + 1}/{max_attempts}")
+        
+        # Try to run the experiment
+        result = run_training(experiment_path)
+        
+        if result.get("status") == "completed":
+            print(f"✅ Training succeeded on attempt {attempt + 1}")
+            return result
+        elif result.get("status") in ["completed_no_training", "completed_no_results"]:
+            print(f"⚠️ Process ran but no actual training occurred on attempt {attempt + 1}")
+        
+        if attempt < max_attempts - 1:  # Don't fix on last attempt
+            print(f"❌ Attempt {attempt + 1} failed, asking LLM to fix...")
+            
+            # Get the error details
+            error_msg = result.get("error", "")
+            stdout_msg = result.get("stdout", "")
+            
+            # Ask LLM to fix the code
+            fixed_code = fix_experiment_code(experiment_path, error_msg, stdout_msg, task, history, api_key)
+            
+            if fixed_code:
+                # Write the fixed code
+                with open(Path(experiment_path) / "experiment.py", 'w') as f:
+                    f.write(fixed_code)
+                print(f"🔧 Code fixed, retrying...")
+            else:
+                print(f"⚠️ LLM couldn't generate fix, retrying with original code...")
+    
+    print(f"❌ All {max_attempts} attempts failed")
+    return result
+
+
+def run_training(experiment_path: str) -> dict:
+    """Run training in the experiment directory"""
+    import sys
+    try:
+        # Print what we're about to run
+        print(f"   📂 Running in: {experiment_path}")
+        print(f"   🐍 Command: python experiment.py")
+        
         result = subprocess.run(
-            'echo "$(cat pipeline_instructions.txt)" | claude --dangerously-skip-permissions --print --max-turns 25',
-            shell=True,
-            cwd=str(workspace),
+            [sys.executable, "experiment.py"],
+            cwd=experiment_path,
             capture_output=True,
             text=True,
-            timeout=12000,  # 3+ hours for full pipeline
-            env=env
+            timeout=7200  # 2 hour timeout for training
         )
         
-        print(f"🔄 Claude Code execution completed (return code: {result.returncode})")
-        
+        # Always show some output
         if result.stdout:
-            print("📤 Claude Output (last 1000 chars):")
-            print(result.stdout[-1000:])
+            print("   📋 Training output (first 500 chars):")
+            print(f"   {result.stdout[:500]}")
         
         if result.stderr:
-            print("⚠️ Claude Errors:")
-            print(result.stderr[-500:])
+            print("   ⚠️ Stderr output:")
+            print(f"   {result.stderr[:500]}")
         
-        # Check if pipeline completed
-        completion_file = workspace / "PIPELINE_COMPLETE.txt"
-        if completion_file.exists():
-            print("✅ Pipeline completed successfully!")
+        if result.returncode == 0:
+            # Check if training actually happened
+            if "Epoch" in result.stdout or "train_loss" in result.stdout or "Training" in result.stdout:
+                print("   ✅ Training completed with epochs")
+            else:
+                print("   ⚠️ Process completed but no training output detected")
+                return {"status": "completed_no_training", "error": "No training output found", "stdout": result.stdout[:1000]}
             
-            # Gather results
-            results = gather_pipeline_results(workspace)
-            return results
+            # Try to read results
+            results_file = Path(experiment_path) / "results.json"
+            if results_file.exists():
+                with open(results_file, 'r') as f:
+                    results = json.load(f)
+                    print(f"   📊 Results found: {results}")
+                    return {"status": "completed", "results": results}
+            else:
+                print("   ⚠️ No results.json found")
+                return {"status": "completed_no_results", "note": "Training finished but no results.json found", "stdout": result.stdout[:1000]}
         else:
-            print("⚠️ Pipeline may not have completed fully")
-            return {"status": "incomplete", "stdout": result.stdout[-1000:]}
-    
+            print(f"   ❌ Training failed with return code {result.returncode}")
+            print(f"   Error: {result.stderr[:500] if result.stderr else 'No stderr'}")
+            return {"status": "failed", "error": result.stderr, "stdout": result.stdout}
+            
     except subprocess.TimeoutExpired:
-        print("⏰ Claude Code timed out after 3+ hours")
+        print("   ⏰ Training timed out after 2 hours")
         return {"status": "timeout"}
-    
     except Exception as e:
-        print(f"💥 Claude Code execution failed: {e}")
+        print(f"   💥 Training error: {e}")
         return {"status": "error", "error": str(e)}
+
+
+def fix_experiment_code(experiment_path: str, error_msg: str, stdout_msg: str, task: dict, history: list, api_key: str) -> str:
+    """Use LLM to fix the experiment code based on the error"""
+    try:
+        from reasoning_agent import ReasoningAgent
+        
+        # Read the current broken code
+        current_code = ""
+        code_file = Path(experiment_path) / "experiment.py"
+        if code_file.exists():
+            current_code = code_file.read_text()
+        
+        # Read the data analysis
+        data_analysis = task.get("data_analysis", {})
+        
+        agent = ReasoningAgent(api_key)
+        
+        # Create a detailed error fixing prompt
+        fix_prompt = f"""FIX THE BROKEN CODE BELOW. Return ONLY the corrected Python code, no explanations.
+
+ORIGINAL TASK: {task['name']} - {task['description']}
+
+ERROR THAT OCCURRED:
+{error_msg}
+
+STDOUT OUTPUT:
+{stdout_msg[:500]}
+
+PREVIOUS SIMILAR ERRORS FROM HISTORY:
+{get_similar_errors(history, error_msg)}
+
+AVAILABLE DATA STRUCTURE: {json.dumps(data_analysis, indent=2)}
+
+BROKEN CODE TO FIX:
+```python
+{current_code}
+```
+
+COMMON FIXES NEEDED:
+- Use correct file paths from data analysis
+- Handle missing columns gracefully
+- Fix data type conversions
+- Check file exists before reading
+- Handle empty dataframes
+- Fix tensor shape mismatches
+
+RETURN ONLY THE FIXED PYTHON CODE:"""
+
+        response = agent._api_call_with_retry(
+            model=agent.model,
+            max_tokens=4000,
+            tools=agent.tools,
+            system=[{
+                "type": "text", 
+                "text": agent.cached_system_prompt,
+                "cache_control": {"type": "ephemeral"}
+            }],
+            messages=[{"role": "user", "content": fix_prompt}]
+        )
+        
+        if hasattr(response, 'usage'):
+            agent.total_input_tokens += response.usage.input_tokens
+            agent.total_output_tokens += response.usage.output_tokens
+        
+        fixed_code = response.content[0].text
+        return agent._extract_python_code(fixed_code)
+        
+    except Exception as e:
+        print(f"❌ Error in fix_experiment_code: {e}")
+        return None
+
+
+def get_similar_errors(history: list, current_error: str) -> str:
+    """Get similar errors from history to help with fixes"""
+    similar_errors = []
+    current_error_lower = current_error.lower()
+    
+    for task in history[-10:]:  # Last 10 tasks
+        if task.get('training_result', {}).get('status') == 'failed':
+            error = task.get('training_result', {}).get('error', '')
+            if error:
+                # Check for similar error types
+                if any(keyword in current_error_lower and keyword in error.lower() 
+                      for keyword in ['filenotfound', 'attributeerror', 'keyerror', 'valueerror', 'typeerror']):
+                    similar_errors.append(f"- {error[:150]}")
+    
+    return '\n'.join(similar_errors[:3]) if similar_errors else "No similar errors in recent history"
 
 
 def gather_pipeline_results(workspace: Path) -> dict:
@@ -318,8 +460,9 @@ def save_results_to_volume(workspace: Path, results: dict):
     volumes={"/data": volume},
     timeout=7200,  # 2 hours for testing
     secrets=[
-        modal.Secret.from_name("anthropic-api-key"),
-        modal.Secret.from_name("kaggle-credentials", required=False)
+        modal.Secret.from_name("anthropic-secret"),
+        modal.Secret.from_name("kaggle"),
+        modal.Secret.from_name("wandb")
     ]
 )
 def manual_run():
